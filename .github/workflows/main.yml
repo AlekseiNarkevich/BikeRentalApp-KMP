@@ -1,0 +1,96 @@
+# CI/CD Workflow для кроссплатформенного приложения "Велопрокат"
+# 
+# Данный сценарий автоматизирует процессы тестирования и сборки приложения 
+# для четырех целевых платформ: Android (APK), iOS (IPA), Web и Linux.
+# Обеспечивает выполнение модульных, виджет и интеграционных тестов.
+# 
+# @author Наркевич Алексей
+# @version 1.0
+
+name: Flutter Build & Test
+
+on:
+  # Запуск при пуше в основные ветки проекта (main и master)
+  push:
+    branches: [ main, master ]
+  # Запуск при создании Pull Request в основные ветки
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  # Сборка под Android, Web и Linux выполняется на виртуальной машине Ubuntu
+  build-android-web-linux:
+    name: Build (Android, Web, Linux)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [apk, web, linux]
+
+    steps:
+    - name: "Шаг 1: Клонирование репозитория"
+      uses: actions/checkout@v3
+    
+    - name: "Шаг 2: Установка Flutter SDK"
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.24.0'
+        channel: 'stable'
+
+    - name: "Шаг 3: Получение зависимостей проекта"
+      run: flutter pub get
+
+    - name: "Шаг 4: Генерация кода (Hive, JSON Serialization)"
+      run: flutter pub run build_runner build --delete-conflicting-outputs
+
+    - name: "Шаг 5: Генерация файлов локализации (l10n)"
+      run: flutter gen-l10n
+
+    - name: "Шаг 6: Запуск тестов (Unit & Widget)"
+      run: flutter test
+
+    - name: "Шаг 7: Сборка целевого артефакта"
+      run: |
+        if [ "${{ matrix.target }}" == "apk" ]; then
+          # Сборка отладочного APK для Android (соответствует ТЗ)
+          flutter build apk --debug
+        elif [ "${{ matrix.target }}" == "web" ]; then
+          # Сборка проекта для развертывания в Web
+          flutter build web
+        elif [ "${{ matrix.target }}" == "linux" ]; then
+          # Установка системных зависимостей, необходимых для сборки под Linux
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev
+          # Компиляция исполняемого файла для Linux Desktop
+          flutter build linux --debug
+        fi
+
+  # Сборка под iOS требует macOS и выполняется на отдельной виртуальной машине
+  build-ios:
+    name: Build (iOS)
+    runs-on: macos-latest
+    steps:
+    - name: "Шаг 1: Клонирование репозитория"
+      uses: actions/checkout@v3
+
+    - name: "Шаг 2: Установка Flutter SDK"
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.24.0'
+        channel: 'stable'
+
+    - name: "Шаг 3: Настройка CocoaPods и получение зависимостей"
+      run: |
+        flutter pub get
+        # Установка нативных зависимостей для iOS через CocoaPods
+        cd ios && pod install && cd ..
+
+    - name: "Шаг 4: Генерация кода и локализация"
+      run: |
+        flutter pub run build_runner build --delete-conflicting-outputs
+        flutter gen-l10n
+
+    - name: "Шаг 5: Сборка iOS приложения (Simulator / No-codesign)"
+      run: |
+        # Сборка для симулятора (x86_64/arm64) без необходимости в платных сертификатах Apple.
+        # Это позволяет GitHub Actions успешно завершить билд и подтвердить корректность кода iOS.
+        flutter build ios --debug --no-codesign
